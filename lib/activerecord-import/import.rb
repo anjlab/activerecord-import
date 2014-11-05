@@ -3,7 +3,7 @@ require "ostruct"
 module ActiveRecord::Import::ConnectionAdapters ; end
 
 module ActiveRecord::Import #:nodoc:
-  class Result < Struct.new(:failed_instances, :num_inserts)
+  class Result < Struct.new(:failed_instances, :num_inserts, :ids)
   end
 
   module ImportSupport #:nodoc:
@@ -120,7 +120,7 @@ class ActiveRecord::Base
     #  # Example using column_names and array_of_values
     #  columns = [ :author_name, :title ]
     #  values = [ [ 'zdennis', 'test post' ], [ 'jdoe', 'another test post' ] ]
-    #  BlogPost.import columns, values 
+    #  BlogPost.import columns, values
     #
     #  # Example using column_names, array_of_value and options
     #  columns = [ :author_name, :title ]
@@ -142,7 +142,7 @@ class ActiveRecord::Base
     #
     # == On Duplicate Key Update (MySQL only)
     #
-    # The :on_duplicate_key_update option can be either an Array or a Hash. 
+    # The :on_duplicate_key_update option can be either an Array or a Hash.
     #
     # ==== Using an Array
     #
@@ -218,8 +218,8 @@ class ActiveRecord::Base
       return_obj = if is_validating
         import_with_validations( column_names, array_of_attributes, options )
       else
-        num_inserts = import_without_validations_or_callbacks( column_names, array_of_attributes, options )
-        ActiveRecord::Import::Result.new([], num_inserts)
+        (num_inserts, ids) = import_without_validations_or_callbacks( column_names, array_of_attributes, options )
+        ActiveRecord::Import::Result.new([], num_inserts, ids)
       end
 
       if options[:synchronize]
@@ -261,12 +261,12 @@ class ActiveRecord::Base
       end
       array_of_attributes.compact!
 
-      num_inserts = if array_of_attributes.empty? || options[:all_or_none] && failed_instances.any?
-                      0
+      (num_inserts, ids) = if array_of_attributes.empty? || options[:all_or_none] && failed_instances.any?
+                      [0, []]
                     else
                       import_without_validations_or_callbacks( column_names, array_of_attributes, options )
                     end
-      ActiveRecord::Import::Result.new(failed_instances, num_inserts)
+      ActiveRecord::Import::Result.new(failed_instances, num_inserts, ids)
     end
 
     # Imports the passed in +column_names+ and +array_of_attributes+
@@ -298,6 +298,7 @@ class ActiveRecord::Base
       columns_sql = "(#{column_names.map{|name| connection.quote_column_name(name) }.join(',')})"
       insert_sql = "INSERT #{options[:ignore] ? 'IGNORE ':''}INTO #{quoted_table_name} #{columns_sql} VALUES "
       values_sql = values_sql_for_columns_and_attributes(columns, array_of_attributes)
+      number_inserted = 0
       if not supports_import?
         number_inserted = 0
         values_sql.each do |values|
@@ -309,11 +310,11 @@ class ActiveRecord::Base
         post_sql_statements = connection.post_sql_statements( quoted_table_name, options )
 
         # perform the inserts
-        number_inserted = connection.insert_many( [ insert_sql, post_sql_statements ].flatten,
+        (number_inserted, ids) = connection.insert_many( [ insert_sql, post_sql_statements ].flatten,
                                                   values_sql,
                                                   "#{self.class.name} Create Many Without Validations Or Callbacks" )
       end
-      number_inserted
+      [number_inserted, ids]
     end
 
     private

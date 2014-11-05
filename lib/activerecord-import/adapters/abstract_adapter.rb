@@ -5,8 +5,6 @@ module ActiveRecord::Import::AbstractAdapter
     end
 
     def insert_many( sql, values, *args ) # :nodoc:
-      number_of_inserts = 1
-
       base_sql,post_sql = if sql.is_a?( String )
         [ sql, '' ]
       elsif sql.is_a?( Array )
@@ -14,9 +12,10 @@ module ActiveRecord::Import::AbstractAdapter
       end
 
       sql2insert = base_sql + values.join( ',' ) + post_sql
-      insert( sql2insert, *args )
+      ids = select_values(sql2insert)
 
-      number_of_inserts
+      number_of_inserts = ids.size
+      [number_of_inserts, ids]
     end
 
     def pre_sql_statements(options)
